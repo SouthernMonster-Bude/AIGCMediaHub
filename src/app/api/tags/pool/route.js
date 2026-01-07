@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const skip = parseInt(searchParams.get('skip') || '0')
+    const take = parseInt(searchParams.get('take') || '500')
+
     const tags = await prisma.tag.findMany({
-      orderBy: { name: 'asc' }
+      orderBy: { name: 'asc' },
+      skip,
+      take
     })
-    return NextResponse.json(tags)
+
+    const total = await prisma.tag.count()
+
+    return NextResponse.json({ tags, total })
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

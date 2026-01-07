@@ -56,6 +56,7 @@ CREATE TABLE "file_tags" (
     "file_id" INTEGER NOT NULL,
     "tag_id" INTEGER NOT NULL,
     "source" TEXT,
+    "weight" REAL NOT NULL DEFAULT 0.8,
     "added_time" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "file_tags_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "file_meta_info" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "file_tags_tag_id_fkey" FOREIGN KEY ("tag_id") REFERENCES "tags" ("id") ON DELETE CASCADE ON UPDATE CASCADE

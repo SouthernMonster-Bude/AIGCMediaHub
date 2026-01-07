@@ -12,6 +12,7 @@ export default function Sidebar({
     sortOrder,
     setSortOrder,
     scanning,
+    scanCount,
     path,
     setPath,
     handleScan,
@@ -37,7 +38,10 @@ export default function Sidebar({
     toggleTag,
     selectedTags,
     getTagStyle,
-    handleAITagFolder
+    handleAITagFolder,
+    selectedExtensions,
+    setSelectedExtensions,
+    availableExtensions
 }) {
     const [contextMenu, setContextMenu] = useState(null)
     const menuRef = useRef(null)
@@ -171,7 +175,7 @@ export default function Sidebar({
                             <div className="bg-blue-600/20 border border-blue-500/30 rounded-md p-2 flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                     <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                    <span className="text-xs text-blue-400 font-medium">{t('scanning')}</span>
+                                    <span className="text-xs text-blue-400 font-medium">{t('scanning')} ({scanCount})</span>
                                 </div>
                                 <button
                                     onClick={abortScan}
@@ -270,6 +274,35 @@ export default function Sidebar({
 
                 {isFiltersOpen && (
                     <div className="px-4 pb-4 space-y-4">
+                        {/* Extension Filter */}
+                        <div className="space-y-2">
+                            <h4 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">File Extensions</h4>
+                            <div className="flex flex-wrap gap-2">
+                                {availableExtensions && availableExtensions.map(ext => (
+                                    <button
+                                        key={ext}
+                                        onClick={() => {
+                                            setSelectedExtensions(prev => {
+                                                const newSet = new Set(prev)
+                                                if (newSet.has(ext)) {
+                                                    newSet.delete(ext)
+                                                } else {
+                                                    newSet.add(ext)
+                                                }
+                                                return newSet
+                                            })
+                                        }}
+                                        className={`px-2 py-1 rounded text-xs transition-all border ${selectedExtensions?.has(ext) ? 'border-blue-500 bg-blue-900/20 text-blue-400' : 'border-gray-700 bg-gray-800/30 text-gray-300'}`}
+                                    >
+                                        .{ext}
+                                    </button>
+                                ))}
+                                {(!availableExtensions || availableExtensions.length === 0) && (
+                                    <span className="text-xs text-gray-600 italic">No extensions available</span>
+                                )}
+                            </div>
+                        </div>
+
                         {!isExpandedFilters ? (
                             <div className="space-y-3">
                                 <h4 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">{t('top_tags')}</h4>

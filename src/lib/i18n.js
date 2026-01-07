@@ -21,6 +21,9 @@ export const translations = {
     re_scan: "重新扫描",
     config: "基础配置",
     cache_path: "缩略图缓存路径",
+    scan_concurrency: "扫描并发度",
+    scan_concurrency_desc: "同时扫描的文件数量，值越高扫描速度越快但占用更多系统资源",
+
     tag_mgmt: "标签池管理",
     tag_pool: "标签池",
     add_tag: "新增标签",
@@ -143,6 +146,9 @@ export const translations = {
     re_scan: "Re-scan",
     config: "General Config",
     cache_path: "Thumbnail Cache Path",
+    scan_concurrency: "Scan Concurrency",
+    scan_concurrency_desc: "Number of files to scan simultaneously. Higher values scan faster but use more system resources",
+
     tag_mgmt: "Tag Management",
     tag_pool: "Tag Pool",
     add_tag: "Add Tag",

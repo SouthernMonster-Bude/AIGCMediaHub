@@ -9,6 +9,7 @@ export function useAppLogic() {
     const [logs, setLogs] = useState([])
     const [loading, setLoading] = useState(false)
     const [scanning, setScanning] = useState(false)
+    const [scanCount, setScanCount] = useState(0)
     const [selectedFile, setSelectedFile] = useState(null)
 
     // Zoom & Pan State
@@ -34,6 +35,10 @@ export function useAppLogic() {
     const [cardScale, setCardScale] = useState(100) // Card scale percentage (15-200)
     const [lang, setLang] = useState('zh') // 'zh' | 'en'
     const [hoveredFileId, setHoveredFileId] = useState(null)
+    
+    // Extension Filter
+    const [selectedExtensions, setSelectedExtensions] = useState(new Set())
+    const [availableExtensions, setAvailableExtensions] = useState([])
 
     // Settings UI
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -81,13 +86,29 @@ export function useAppLogic() {
     const fetchFiles = async (folderPath = null) => {
         setLoading(true)
         try {
-            const url = folderPath
+            let url = folderPath
                 ? `/api/files?limit=500&parentPath=${encodeURIComponent(folderPath)}`
                 : '/api/files?limit=500'
+            
+            // Add extension filters if any
+            if (selectedExtensions.size > 0) {
+                const extensions = Array.from(selectedExtensions).join(',')
+                url += `&extensions=${encodeURIComponent(extensions)}`
+            }
+            
             const res = await fetch(url)
             const json = await res.json()
             const data = json.data || []
             setFiles(data)
+            
+            // Extract available extensions from files
+            const extensions = new Set()
+            data.forEach(file => {
+                if (file.fileExt) {
+                    extensions.add(file.fileExt)
+                }
+            })
+            setAvailableExtensions(Array.from(extensions))
         } catch (e) {
             console.error(e)
         } finally {
@@ -140,11 +161,16 @@ export function useAppLogic() {
         } catch (e) { console.error(e) }
     }
 
-    const fetchTagPool = async () => {
+    const fetchTagPool = async (skip = 0, take = 500, append = false) => {
         try {
-            const res = await fetch('/api/tags/pool')
+            const res = await fetch(`/api/tags/pool?skip=${skip}&take=${take}`)
             const data = await res.json()
-            setTagPool(data)
+            if (append) {
+                setTagPool(prev => [...prev, ...data.tags])
+            } else {
+                setTagPool(data.tags)
+            }
+            return { tags: data.tags, total: data.total }
         } catch (e) { console.error(e) }
     }
 
@@ -307,6 +333,7 @@ export function useAppLogic() {
 
         setScanning(true)
         setLogs([])
+        setScanCount(0)
 
         if (eventSourceRef.current) {
             eventSourceRef.current.close()
@@ -330,6 +357,10 @@ export function useAppLogic() {
                     setScanning(false)
                 } else {
                     setLogs(prev => [...prev.slice(-49), data])
+                    // Update scan count for processing events (exclude skipped files)
+                    if (data.type === 'processed' || data.type === 'scanning') {
+                        setScanCount(prev => prev + 1)
+                    }
                 }
             } catch (e) { }
         }
@@ -476,7 +507,7 @@ export function useAppLogic() {
     }, [selectedFile, filteredFiles])
 
     return {
-        path, setPath, files, filteredFiles, logs, setLogs, loading, scanning,
+        path, setPath, files, filteredFiles, logs, setLogs, loading, scanning, scanCount,
         selectedFile, setSelectedFile, zoom, setZoom, pan, setPan, isDragging,
         searchQuery, setSearchQuery, sortOrder, setSortOrder, folders,
         selectedFolder, setSelectedFolder, expandedFolders, setExpandedFolders,
@@ -488,6 +519,7 @@ export function useAppLogic() {
         handleScan, abortScan, toggleTag, buildFolderTree, toggleFolder, expandAll, collapseAll,
         handleNext, handlePrev, handleWheel, handleMouseDown, handleMouseMove, handleMouseUp,
         copyToClipboard, toggleFavorite, formatFileSize, getTagStyle, removePath, addTagToPool,
-        deleteTagFromPool, saveSetting, handleAITagging, handleAITagFolder
+        deleteTagFromPool, saveSetting, fetchTagPool, handleAITagging, handleAITagFolder,
+        selectedExtensions, setSelectedExtensions, availableExtensions, setAvailableExtensions
     }
 }

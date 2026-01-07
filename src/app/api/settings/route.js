@@ -13,6 +13,9 @@ export async function GET() {
     if (!settingsMap.cachePath) {
         settingsMap.cachePath = '.cache/thumbnails'
     }
+    if (!settingsMap.scanConcurrency) {
+        settingsMap.scanConcurrency = '4'
+    }
 
     return NextResponse.json(settingsMap)
   } catch (error) {

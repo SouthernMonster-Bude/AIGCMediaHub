@@ -23,14 +23,34 @@ export async function GET() {
       }
     })
 
+    // Group tags by type and sort each group by count descending, then take top 20 per type
+    const groupedTags = tags.reduce((acc, tag) => {
+      const type = tag.type || 'other'
+      if (!acc[type]) {
+        acc[type] = []
+      }
+      acc[type].push({
+        id: tag.id,
+        name: tag.name,
+        type: tag.type,
+        count: tag._count.files,
+        color: tag.color
+      })
+      return acc
+    }, {})
+
+    // Sort each group by count descending and take top 20
+    Object.keys(groupedTags).forEach(type => {
+      groupedTags[type].sort((a, b) => b.count - a.count)
+      groupedTags[type] = groupedTags[type].slice(0, 20)
+    })
+
+    // Flatten the grouped tags back to a single array
+    const flattenedTags = Object.values(groupedTags).flat()
+
     return NextResponse.json({ 
         success: true, 
-        data: tags.map(t => ({
-            id: t.id,
-            name: t.name,
-            type: t.type,
-            count: t._count.files
-        }))
+        data: flattenedTags
     })
   } catch (error) {
     console.error('API Error:', error)

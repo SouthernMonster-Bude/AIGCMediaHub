@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { SettingsIcon, RefreshIcon, TrashIcon } from './Icons'
 
 export default function SettingsModal({
@@ -13,11 +13,71 @@ export default function SettingsModal({
     setSystemSettings,
     saveSetting,
     tagPool,
+    setTagPool,
     newTagName,
     setNewTagName,
     addTagToPool,
-    deleteTagFromPool
+    deleteTagFromPool,
+    fetchTagPool
 }) {
+    const [loading, setLoading] = useState(false)
+    const [page, setPage] = useState(0)
+    const [totalTags, setTotalTags] = useState(0)
+    const tagPoolRef = useRef(null)
+
+    useEffect(() => {
+        if (isSettingsOpen) {
+            // Reset and load initial tags
+            setPage(0)
+            fetchTagPool(0, 500, false).then(data => {
+                if (data) {
+                    setTotalTags(data.total)
+                }
+            })
+        }
+    }, [isSettingsOpen, fetchTagPool])
+
+    useEffect(() => {
+        const handleScroll = () => {
+            if (!tagPoolRef.current) return
+            
+            const { scrollTop, clientHeight, scrollHeight } = tagPoolRef.current
+            
+            // When user scrolls to within 100px of the bottom
+            if (scrollHeight - scrollTop - clientHeight < 10 && !loading && tagPool.length < totalTags) {
+                loadMoreTags()
+            }
+        }
+
+        const tagPoolElement = tagPoolRef.current
+        if (tagPoolElement) {
+            tagPoolElement.addEventListener('scroll', handleScroll)
+        }
+
+        return () => {
+            if (tagPoolElement) {
+                tagPoolElement.removeEventListener('scroll', handleScroll)
+            }
+        }
+    }, [loading, tagPool.length, totalTags, fetchTagPool])
+
+    const loadMoreTags = async () => {
+        setLoading(true)
+        try {
+            const nextPage = page + 1
+            const skip = nextPage * 500
+            const result = await fetchTagPool(skip, 500, true)
+            if (result) {
+                setPage(nextPage)
+                setTotalTags(result.total)
+            }
+        } catch (error) {
+            console.error('Error loading more tags:', error)
+        } finally {
+            setLoading(false)
+        }
+    }
+
     if (!isSettingsOpen) return null
 
     return (
@@ -81,6 +141,28 @@ export default function SettingsModal({
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Scan Concurrency */}
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold text-gray-500">{t('scan_concurrency')}</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="16"
+                                        value={systemSettings.scanConcurrency || 4}
+                                        onChange={e => setSystemSettings(prev => ({ ...prev, scanConcurrency: e.target.value }))}
+                                        className="flex-1 bg-[#1a1a1a] border border-gray-800 rounded-md py-2 px-3 text-sm focus:border-blue-500 outline-none transition-colors"
+                                    />
+                                    <button
+                                        onClick={() => saveSetting('scan_concurrency', systemSettings.scanConcurrency || 4)}
+                                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-md text-sm font-bold transition-colors"
+                                    >
+                                        Update
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-gray-600">{t('scan_concurrency_desc')}</p>
+                            </div>
                         </div>
                     </section>
 
@@ -104,24 +186,28 @@ export default function SettingsModal({
                                 </button>
                             </div>
 
-                            <div className="flex flex-wrap gap-2 pt-2">
-                                {tagPool.map(tag => (
-                                    <div key={tag.id} className="group relative">
-                                        <div
-                                            className="px-3 py-1.5 rounded-full border border-gray-700 bg-gray-800/30 text-xs font-medium flex items-center gap-2"
-                                            style={tag.color ? { borderColor: `${tag.color}55`, color: tag.color } : {}}
-                                        >
-                                            {tag.name}
-                                            <span className="text-[10px] opacity-40 uppercase">{tag.type}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => deleteTagFromPool(tag.id)}
-                                            className="absolute -top-1.5 -right-1.5 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center transform hover:scale-110 shadow-lg"
-                                        >
-                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
+                            <div className="pt-2">
+                                <div ref={tagPoolRef} className="bg-[#1a1a1a] border border-gray-800 rounded-lg h-[287px] overflow-y-auto custom-scrollbar p-3">
+                                    <div className="flex flex-wrap gap-2">
+                                        {tagPool.map(tag => (
+                                            <div key={tag.id} className="group relative">
+                                                <div
+                                                    className="px-3 py-1.5 rounded-full border border-gray-700 bg-gray-800/30 text-xs font-medium flex items-center gap-2"
+                                                    style={tag.color ? { borderColor: `${tag.color}55`, color: tag.color } : {}}
+                                                >
+                                                    {tag.name}
+                                                    <span className="text-[10px] opacity-40 uppercase">{tag.type}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => deleteTagFromPool(tag.id)}
+                                                    className="absolute -top-1.5 -right-1.5 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center transform hover:scale-110 shadow-lg"
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
+                                </div>
                             </div>
                         </div>
                     </section>

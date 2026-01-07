@@ -264,7 +264,7 @@ export async function tagImage(fileId) {
     // Save tags to database
     await saveAITags(
       fileId,
-      detectedTags.map((t) => t.name)
+      detectedTags
     );
 
     return detectedTags.map((t) => t.name);
@@ -277,7 +277,7 @@ export async function tagImage(fileId) {
 /**
  * Save AI-generated tags to database
  */
-async function saveAITags(fileId, tagNames) {
+async function saveAITags(fileId, tags) {
   try {
     // Remove all existing AI tags for this file first
     await prisma.fileTag.deleteMany({
@@ -291,29 +291,30 @@ async function saveAITags(fileId, tagNames) {
     console.error("[AI Tagger] Error removing existing AI tags:", e);
   }
 
-  for (const tagName of tagNames) {
+  for (const tag of tags) {
     try {
       // Create or find tag
-      const tag = await prisma.tag.upsert({
-        where: { name: tagName },
+      const tagObj = await prisma.tag.upsert({
+        where: { name: tag.name },
         update: {},
         create: {
-          name: tagName,
+          name: tag.name,
           type: "ai",
           color: "#10b981", // Green for AI tags
         },
       });
 
-      // Link to file
+      // Link to file with confidence as weight
       await prisma.fileTag.create({
         data: {
           fileId: fileId,
-          tagId: tag.id,
+          tagId: tagObj.id,
           source: "ai",
+          weight: tag.confidence,
         },
       });
     } catch (e) {
-      console.error("[AI Tagger] Error saving tag:", tagName, e);
+      console.error("[AI Tagger] Error saving tag:", tag.name, e);
     }
   }
 }

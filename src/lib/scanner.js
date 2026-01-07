@@ -8,6 +8,167 @@ import { getSetting } from '@/lib/settings'
 
 const SUPPORTED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov']
 
+// 并发处理工具函数
+async function processFilesConcurrently(files, processFn, concurrency) {
+  const results = []
+  const queue = [...files]
+  
+  async function processBatch() {
+    while (queue.length > 0) {
+      const batch = queue.splice(0, concurrency)
+      const batchResults = await Promise.all(
+        batch.map(file => processFn(file).catch(err => {
+          console.error(`Error processing ${file.name}:`, err)
+          return null
+        }))
+      )
+      results.push(...batchResults.filter(result => result !== null))
+    }
+  }
+  
+  await processBatch()
+  return results
+}
+
+// 单个文件处理函数
+async function processFile(file, dirPath, onProgress, options = {}) {
+  const { force = false, signal } = options
+  const fullPath = path.join(dirPath, file.name)
+  
+  if (file.isDirectory()) {
+    await scanDirectory(fullPath, onProgress, options)
+  } else if (file.isFile()) {
+    const ext = path.extname(file.name).toLowerCase().replace('.', '')
+    
+    if (SUPPORTED_EXTENSIONS.includes(ext)) {
+      try {
+        const stats = await fs.stat(fullPath)
+        
+        onProgress({ type: 'scanning', file: fullPath })
+        
+        // Check if file exists and is unchanged
+        const existingFile = await prisma.fileMetaInfo.findUnique({
+          where: { filePath: fullPath },
+          include: { aigcMetaInfo: true } // Check if meta already extracted
+        })
+        
+        if (existingFile &&
+          existingFile.fileSize === BigInt(stats.size) &&
+          existingFile.modifiedTime.getTime() === stats.mtime.getTime()) {
+          
+          await prisma.fileMetaInfo.update({
+            where: { filePath: fullPath },
+            data: { lastScanned: new Date() }
+          })
+          onProgress({ type: 'skipped', file: fullPath })
+          return null
+        }
+        
+        // File changed or new, calculate hash
+        const hash = await calculateHash(fullPath)
+        
+        if (signal?.aborted) return null
+        
+        // Upsert File Info
+        const upsertedFile = await prisma.fileMetaInfo.upsert({
+          where: { filePath: fullPath },
+          update: {
+            modifiedTime: stats.mtime,
+            lastScanned: new Date(),
+            fileSize: stats.size,
+            fileHash: hash,
+            isActive: true
+          },
+          create: {
+            filePath: fullPath,
+            parentPath: dirPath,
+            fileName: file.name,
+            fileSize: stats.size,
+            fileHash: hash,
+            fileExt: ext,
+            createdTime: stats.birthtime,
+            modifiedTime: stats.mtime,
+            fileType: ['mp4', 'mov'].includes(ext) ? 'video' : 'image',
+            thumbnailPath: null // Placeholder
+          }
+        })
+        
+        if (signal?.aborted) return null
+        
+        // Generate Thumbnail (Images and Videos)
+        if (['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov'].includes(ext)) {
+          try {
+            const thumbPath = await generateThumbnail(fullPath)
+            if (thumbPath) {
+              await prisma.fileMetaInfo.update({
+                where: { id: upsertedFile.id },
+                data: { thumbnailPath: thumbPath }
+              })
+            }
+          } catch (thumbError) {
+            console.error(`[Scanner] Thumbnail generation failed for ${file.name}:`, thumbError)
+          }
+        }
+        
+        if (signal?.aborted) return null
+        
+        // Extract & Save AIGC Metadata (Images only for now)
+        if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+          try {
+            const aigcData = await parseAigcMetadata(fullPath)
+            
+            if (aigcData) {
+              const { loras, ...metaToSave } = aigcData
+              await prisma.aigcMetaInfo.upsert({
+                where: { fileMetaInfoId: upsertedFile.id },
+                update: {
+                  ...metaToSave,
+                  generatedTime: null
+                },
+                create: {
+                  fileMetaInfoId: upsertedFile.id,
+                  ...metaToSave
+                }
+              })
+              
+              // Save Tags
+              await saveAigcTags(upsertedFile.id, aigcData)
+            }
+          } catch (metaError) {
+            console.error(`[Scanner] Metadata extraction failed for ${file.name}:`, metaError)
+          }
+        }
+        
+        // AI Visual Tagging (Images only, after thumbnail generation)
+        if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+          try {
+            // Check if AI tagging is enabled in settings
+            const aiEnabled = await getSetting('ai_tagger_enabled', 'false')
+            if (aiEnabled === 'true') {
+              const { tagImage } = await import('@/lib/tagger')
+              await tagImage(upsertedFile.id)
+            }
+          } catch (aiError) {
+            // Silently fail if AI tagger is not available or disabled
+            if (aiError.message && !aiError.message.includes('Cannot find module')) {
+              console.error(`[Scanner] AI tagging failed for ${file.name}:`, aiError)
+            }
+          }
+        }
+        
+        onProgress({ type: 'processed', file: fullPath })
+        
+        return upsertedFile
+      } catch (error) {
+        console.error(`Error processing file ${fullPath}:`, error)
+        onProgress({ type: 'error', file: fullPath, error: error.message })
+        return null
+      }
+    }
+  }
+  return null
+}
+
 async function calculateHash(filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256')
@@ -39,140 +200,16 @@ export async function scanDirectory(dirPath, onProgress = () => { }, options = {
     if (entry.isDirectory()) diskDirNames.add(entry.name)
   }
 
-  for (const file of entries) {
-    if (signal?.aborted) return
-    const fullPath = path.join(dirPath, file.name)
+  // Get concurrency setting
+  const concurrencyStr = await getSetting('scan_concurrency', '4')
+  const concurrency = Math.max(1, parseInt(concurrencyStr) || 4)
 
-    if (file.isDirectory()) {
-      await scanDirectory(fullPath, onProgress, options)
-    } else if (file.isFile()) {
-      const ext = path.extname(file.name).toLowerCase().replace('.', '')
-
-      if (SUPPORTED_EXTENSIONS.includes(ext)) {
-        try {
-          const stats = await fs.stat(fullPath)
-
-          onProgress({ type: 'scanning', file: fullPath })
-
-          // Check if file exists and is unchanged
-          const existingFile = await prisma.fileMetaInfo.findUnique({
-            where: { filePath: fullPath },
-            include: { aigcMetaInfo: true } // Check if meta already extracted
-          })
-
-          if (existingFile &&
-            existingFile.fileSize === BigInt(stats.size) &&
-            existingFile.modifiedTime.getTime() === stats.mtime.getTime()) {
-
-            await prisma.fileMetaInfo.update({
-              where: { filePath: fullPath },
-              data: { lastScanned: new Date() }
-            })
-            onProgress({ type: 'skipped', file: fullPath })
-            continue
-          }
-
-          // File changed or new, calculate hash
-          const hash = await calculateHash(fullPath)
-
-          if (signal?.aborted) return
-
-          // Upsert File Info
-          const upsertedFile = await prisma.fileMetaInfo.upsert({
-            where: { filePath: fullPath },
-            update: {
-              modifiedTime: stats.mtime,
-              lastScanned: new Date(),
-              fileSize: stats.size,
-              fileHash: hash,
-              isActive: true
-            },
-            create: {
-              filePath: fullPath,
-              parentPath: dirPath,
-              fileName: file.name,
-              fileSize: stats.size,
-              fileHash: hash,
-              fileExt: ext,
-              createdTime: stats.birthtime,
-              modifiedTime: stats.mtime,
-              fileType: ['mp4', 'mov'].includes(ext) ? 'video' : 'image',
-              thumbnailPath: null // Placeholder
-            }
-          })
-
-          if (signal?.aborted) return
-
-          // Generate Thumbnail (Images and Videos)
-          if (['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov'].includes(ext)) {
-            try {
-              const thumbPath = await generateThumbnail(fullPath)
-              if (thumbPath) {
-                await prisma.fileMetaInfo.update({
-                  where: { id: upsertedFile.id },
-                  data: { thumbnailPath: thumbPath }
-                })
-              }
-            } catch (thumbError) {
-              console.error(`[Scanner] Thumbnail generation failed for ${file.name}:`, thumbError)
-            }
-          }
-
-          if (signal?.aborted) return
-
-          // Extract & Save AIGC Metadata (Images only for now)
-          if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
-            try {
-              const aigcData = await parseAigcMetadata(fullPath)
-
-              if (aigcData) {
-                const { loras, ...metaToSave } = aigcData
-                await prisma.aigcMetaInfo.upsert({
-                  where: { fileMetaInfoId: upsertedFile.id },
-                  update: {
-                    ...metaToSave,
-                    generatedTime: null
-                  },
-                  create: {
-                    fileMetaInfoId: upsertedFile.id,
-                    ...metaToSave
-                  }
-                })
-
-                // Save Tags
-                await saveAigcTags(upsertedFile.id, aigcData)
-              }
-            } catch (metaError) {
-              console.error(`[Scanner] Metadata extraction failed for ${file.name}:`, metaError)
-            }
-          }
-
-          // AI Visual Tagging (Images only, after thumbnail generation)
-          if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
-            try {
-              // Check if AI tagging is enabled in settings
-              const aiEnabled = await getSetting('ai_tagger_enabled', 'false')
-              if (aiEnabled === 'true') {
-                const { tagImage } = await import('@/lib/tagger')
-                await tagImage(upsertedFile.id)
-              }
-            } catch (aiError) {
-              // Silently fail if AI tagger is not available or disabled
-              if (aiError.message && !aiError.message.includes('Cannot find module')) {
-                console.error(`[Scanner] AI tagging failed for ${file.name}:`, aiError)
-              }
-            }
-          }
-
-          onProgress({ type: 'processed', file: fullPath })
-
-        } catch (error) {
-          console.error(`Error processing file ${fullPath}:`, error)
-          onProgress({ type: 'error', file: fullPath, error: error.message })
-        }
-      }
-    }
-  }
+  // Process files concurrently
+  await processFilesConcurrently(
+    entries,
+    (file) => processFile(file, dirPath, onProgress, options),
+    concurrency
+  )
 
   if (signal?.aborted) return
 

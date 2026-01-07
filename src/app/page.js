@@ -9,19 +9,20 @@ import Gallery from '@/components/Gallery'
 
 export default function Home() {
     const {
-        path, setPath, filteredFiles, logs, setLogs, loading, scanning,
-        selectedFile, setSelectedFile, zoom, pan, isDragging,
+        path, setPath, filteredFiles, logs, setLogs, loading, scanning, scanCount,
+        selectedFile, setSelectedFile, zoom, setZoom, pan, setPan, isDragging,
         searchQuery, setSearchQuery, sortOrder, setSortOrder, folders,
         selectedFolder, setSelectedFolder, expandedFolders,
         allTags, selectedTags, setSelectedTags, isFiltersOpen, setIsFiltersOpen,
         isExpandedFilters, setIsExpandedFilters, showOnlyFavorites, setShowOnlyFavorites,
         viewMode, setViewMode, cardScale, setCardScale, lang, hoveredFileId, setHoveredFileId,
-        isSettingsOpen, setIsSettingsOpen, importedPaths, tagPool, systemSettings, setSystemSettings,
+        isSettingsOpen, setIsSettingsOpen, importedPaths, tagPool, setTagPool, systemSettings, setSystemSettings,
         newTagName, setNewTagName, t, changeLanguage, onProgress, logsContainerRef,
         handleScan, abortScan, toggleTag, buildFolderTree, toggleFolder, expandAll, collapseAll,
         handleNext, handlePrev, handleWheel, handleMouseDown, handleMouseMove, handleMouseUp,
         copyToClipboard, toggleFavorite, formatFileSize, getTagStyle, removePath, addTagToPool,
-        deleteTagFromPool, saveSetting, handleAITagging, handleAITagFolder
+        deleteTagFromPool, saveSetting, fetchTagPool, handleAITagging, handleAITagFolder,
+        selectedExtensions, setSelectedExtensions, availableExtensions
     } = useAppLogic()
 
     return (
@@ -34,6 +35,7 @@ export default function Home() {
                 sortOrder={sortOrder}
                 setSortOrder={setSortOrder}
                 scanning={scanning}
+                scanCount={scanCount}
                 path={path}
                 setPath={setPath}
                 handleScan={handleScan}
@@ -62,6 +64,9 @@ export default function Home() {
                 lang={lang}
                 changeLanguage={changeLanguage}
                 handleAITagFolder={handleAITagFolder}
+                selectedExtensions={selectedExtensions}
+                setSelectedExtensions={setSelectedExtensions}
+                availableExtensions={availableExtensions}
             />
 
             {/* MAIN CONTENT */}
@@ -123,10 +128,12 @@ export default function Home() {
                 setSystemSettings={setSystemSettings}
                 saveSetting={saveSetting}
                 tagPool={tagPool}
+                setTagPool={setTagPool}
                 newTagName={newTagName}
                 setNewTagName={setNewTagName}
                 addTagToPool={addTagToPool}
                 deleteTagFromPool={deleteTagFromPool}
+                fetchTagPool={fetchTagPool}
             />
         </div>
     )

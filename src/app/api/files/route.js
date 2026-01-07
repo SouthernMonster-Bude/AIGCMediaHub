@@ -22,6 +22,13 @@ export async function GET(request) {
       ]
     }
 
+    // If extensions are specified, filter by file extensions
+    const extensions = searchParams.get('extensions')
+    if (extensions) {
+      const extList = extensions.split(',').map(ext => ext.trim())
+      where.fileExt = { in: extList }
+    }
+
     const [files, total] = await prisma.$transaction([
       prisma.fileMetaInfo.findMany({
         skip,

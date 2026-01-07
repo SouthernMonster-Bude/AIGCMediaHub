@@ -81,6 +81,7 @@ model FileTag {
   fileId      Int      @map("file_id")
   tagId       Int      @map("tag_id")
   source      String?
+  weight      Float    @default(0.8) @map("weight")
   addedTime   DateTime @default(now()) @map("added_time")
 
   file        FileMetaInfo @relation(fields: [fileId], references: [id], onDelete: Cascade)
